@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: spark_metastore_db
+    environment:
+      POSTGRES_DB: metastore_db
+      POSTGRES_USER: spark_user
+      POSTGRES_PASSWORD: spark_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spark_user -d metastore_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  spark:
+    image: apache/spark:3.5.0-python3
+    container_name: spark_playground
+    user: root
+    ports:
+      - "4040:4040"
+    environment:
+      - SPARK_HOME=/opt/spark
+      - SPARK_CONF_DIR=/opt/spark/conf
+      - SPARK_SUBMIT_OPTS=-Dhive.metastore.uris= -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://spark_metastore_db:5432/metastore_db
+    volumes:
+      - ./conf/hive-site.xml:/opt/spark/conf/hive-site.xml
+      - ./jars/postgresql-42.7.1.jar:/opt/spark/jars/postgresql-42.7.1.jar
+      - ./jars:/opt/spark/jars_external
+      - ./app:/opt/spark/app
+      - ./data:/data
+    command: >
+      bash -c "echo 'Spark is ready. Use: docker exec -it spark_playground bash' && 
+               tail -f /dev/null"
+  ingestion:
+    image: ghcr.io/cynicdog/uptown-downtown/ingestion:latest
+    container_name: mta_ingestion
+    volumes:
+      - ./data/raw:/data/raw
+    environment:
+      - RAW_BASE_PATH=/data/raw
+      - POLL_INTERVAL_SECONDS=30
+    depends_on:
+      postgres:
+        condition: service_healthy
